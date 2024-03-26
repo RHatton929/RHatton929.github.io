@@ -1,5 +1,4 @@
 ---
-title: "Website"
 output: html_document
 pagetitle: Hatton
 ---
