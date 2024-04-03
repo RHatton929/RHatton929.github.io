@@ -1,0 +1,304 @@
+---
+title: "UFO Sighting Data Analysis"
+output: html_document
+---
+## Setting Up:
+```{r, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(janitor)
+library(leaflet)
+library(readxl)
+library(easystats)
+```
+
+## Loading the Data:
+```{r, message=FALSE, warning=FALSE}
+df <- read_csv("./ufo_data.csv") %>% 
+  janitor::clean_names()
+```
+
+```{r}
+glimpse(df)
+```
+As we can see above, there is some cleaning to be done before we get started on analyzing any data.
+
+## Tidying the Data:
+
+This analysis is only going to focus on UFO sightings within the United States, so I need the data to reflect that.
+```{r}
+df <- df %>%
+  mutate(country = case_when(
+    state %in% c("al", "ak", "az", "ar", "ca", "co", "ct", "de", "dc", "fl", 
+                 "ga", "hi", "id", "il", "in", "ia", "ks", "ky", "la", "me", 
+                 "md", "ma", "mi", "mn", "ms", "mo", "mt", "ne", "nv", "nh", 
+                 "nj", "nm", "ny", "nc", "nd", "oh", "ok", "or", "pa", "ri", 
+                 "sc", "sd", "tn", "tx", "ut", "vt", "va", "wa", "wv", "wi", "wy") ~ "us",
+    TRUE ~ "other"
+  ))
+
+df <- df %>% 
+  filter(country == "us")
+```
+
+One would expect the above code to adequately filter submissions but when looking at latitudes and longitudes, there are still some entries that fall outside of the United States. To fix that, I'm going to create some boundaries.
+```{r}
+continental_us <- list(
+  xmin = -125.0,  # Westernmost point 
+  xmax = -66.93457,  # Easternmost point
+  ymin = 24.396308,  # Southernmost point
+  ymax = 49.384358  # Northernmost point
+)
+
+alaska_hawaii <- list(
+  xmin = -178.2166,  # Westernmost point
+  xmax = -129.9943,  # Easternmost point
+  ymin = 18.9117,  # Southernmost point
+  ymax = 71.5388  # Northernmost point 
+)
+
+continental_us_data <- df %>%
+  filter(latitude >= continental_us$ymin & latitude <= continental_us$ymax &
+           longitude >= continental_us$xmin & longitude <= continental_us$xmax)
+
+alaska_hawaii_data <- df %>%
+  filter(latitude >= alaska_hawaii$ymin & latitude <= alaska_hawaii$ymax &
+           longitude >= alaska_hawaii$xmin & longitude <= alaska_hawaii$xmax)
+
+df <- rbind(continental_us_data, alaska_hawaii_data)
+```
+
+Another problem with this data is the shapes of UFOs.
+```{r}
+unique(df$shape)
+```
+
+There are a lot of values that could mean the same thing, so we're going to group those together.
+```{r}
+df <- df %>% 
+  mutate(shape = case_when(
+  shape %in% c("light", "fireball", "flash", "flare") ~ "light",
+  shape %in% c("circle", "sphere", "egg", "oval", "disk", "round") ~ "spherical",
+  shape %in% c("cylinder", "rectangle", "cigar") ~ "rectangular",
+  shape %in% c("triangle", "pyramid") ~ "triangular",
+  is.na(shape) | shape %in% c("unknown", "other", "changing", "changed", "formation") ~ "other",
+  shape %in% c("delta", "chevron") ~ "delta",
+  shape %in% c("diamond", "hexagon") ~ "diamond",
+  shape %in% c("cone", "dome") ~ "cone",
+  TRUE ~ as.character(shape)))
+
+unique(df$shape)
+```
+
+```{r, echo=FALSE}
+df <- df %>%
+  separate(datetime, into = c("month", "day", "year", "time"), sep = "[ /]")
+```
+
+
+## Visualizing the Data:
+
+First, let's put up a map of all the UFO sightings in the United States:
+```{r, echo=FALSE}
+m <- leaflet(data = df) %>% 
+  addTiles() %>%
+  addCircleMarkers(lng = df$longitude,
+                   lat = df$latitude,
+                   radius = 5,
+                   color = "darkgreen",
+                   popup = ~paste("Shape:", str_to_title(df$shape),"<br>",
+                                  "Duration (seconds):", df$duration_seconds, "<br>",
+                                  "Duration (minutes):", df$duration_seconds/60, "<br>",
+                                  "Latitude: ", df$latitude, "<br>",
+                                  "Longitude: ", df$longitude))
+m
+```
+
+
+Which U.S. state/territory has the most UFO sightings?
+```{r, plot}
+df %>% 
+  mutate(state = toupper(state)) %>% 
+  filter(state!=is.na(state)) %>% 
+  group_by(state) %>% 
+  summarize(N = n()) %>% 
+  ggplot(aes(x = reorder(state, -N),
+             y = N)) +
+  geom_col(aes(fill = state)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, 
+                                   vjust = 0.4, 
+                                   hjust = 1)) +
+  labs(title = "Number of UFO Sightings by US State/Territory",
+       x = "State",
+       y = "Number of UFO Sightings") +
+  guides(fill = "none")
+```
+
+It makes a lot of sense that California, the most populous state, would have the most UFO sightings.Let's see if we can find out which state has the highest percentage of UFO sightings compared to population.
+
+```{r}
+state_data <- df %>% 
+  mutate(state = toupper(state)) %>% 
+  filter(state!=is.na(state)) %>% 
+  group_by(state) %>% 
+  summarize(N = n())
+
+state_pop <- data.frame(
+  state = toupper(c("al", "ak", "az", "ar", "ca", "co", "ct", "de", "dc", "fl", 
+                    "ga", "hi", "id", "il", "in", "ia", "ks", "ky", "la", "me", 
+                    "md", "ma", "mi", "mn", "ms", "mo", "mt", "ne", "nv", "nh", 
+                    "nj", "nm", "ny", "nc", "nd", "oh", "ok", "or", "pa", "ri", 
+                    "sc", "sd", "tn", "tx", "ut", "vt", "va", "wa", "wv", "wi", "wy")),
+  pop = c(4779736, 710231, 6392017, 2915918, 37253956, 5029196, 3574097, 897934, 601723, 18801310,
+          9687653, 1360301, 1567582, 12830632, 6483802, 3046355, 2853118, 4339367, 4533372, 1328361,
+          5773552, 6547629, 9883640, 5303925, 2967297, 5988927, 989415, 1826341, 2700551, 1316470,
+          8791894, 2059179, 19378102, 9535483, 672591, 11536504, 3751351, 3831074, 12702379, 1052567,
+          4625364, 814180, 6346105, 25145561, 2763885, 625741, 8001024, 6724540, 1852994, 5686986, 563626))
+
+state_merge <- state_data %>% 
+  left_join(state_pop, by = 'state')
+
+state_merge <- state_merge %>% 
+  mutate(percent_per_capita = (N/pop)*100)
+
+state_merge %>% 
+  ggplot(aes(x = reorder(state, -percent_per_capita),
+             y = percent_per_capita)) +
+  geom_col(aes(fill = state)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.4, hjust = 1),
+        plot.title = element_text(face = "bold", size = 15)) +
+  labs(title = "UFO Sightings per Capita by US State/Territory",
+       x = "State",
+       y = "UFO Sightings per Capita") +
+  guides(fill = "none")
+```
+
+Washington, which was second highest in total number of sightings, actually has the highest percentage of sightings to population.
+
+Now let's figure out what the most common shape of UFO seen in the U.S. is.
+```{r, message=FALSE,}
+most_common_shape <- df %>%
+  count(shape) %>%
+  arrange(desc(n))
+
+head(most_common_shape, n = 1)
+```
+Not entirely surprisingly, the most common UFO seen is light, with over 21,000 sightings. 
+
+What's the average duration of a UFO sighting?
+```{r}
+mean(df$duration_seconds, na.rm = TRUE)
+```
+5727.5 seconds is over an 1.5 hours, which is a pretty long time to watch a UFO fly overhead.
+
+Let's answer a few more questions: How has the frequency of UFO sightings changed over the years?
+```{r}
+df %>%
+  mutate(year = as.integer(year)) %>%
+  count(year) %>%
+  ggplot(aes(x = year, y = n)) +
+  geom_line() +
+  theme_minimal() +
+  labs(title = "Frequency of UFO Sightings Over the Years",
+       x = "Year",
+       y = "Number of Sightings")
+```
+
+Sightings peaked around 2012, before a rapid drop in occurrence.
+
+What season do sightings occur in most?
+```{r}
+get_season <- function(month) {
+  if (month %in% c(12, 1, 2)) {
+    return("Winter")
+  } else if (month %in% c(3, 4, 5)) {
+    return("Spring")
+  } else if (month %in% c(6, 7, 8)) {
+    return("Summer")
+  } else {
+    return("Fall")
+  }
+}
+
+df <- df %>%
+  mutate(season = sapply(month, get_season))
+
+sightings_by_season <- df %>%
+  group_by(season) %>%
+  summarize(count = n())
+
+ggplot(sightings_by_season, aes(x = season, y = count, fill = season)) +
+  geom_col() +
+  theme_minimal() +
+  labs(title = "UFO Sightings by Season",
+       x = "Season",
+       y = "Number of Sightings",
+       fill = "Season") +
+  theme(legend.position = "none")
+```
+
+There are more sightings in the summer than there are in any other season, presumably because people are far more comfortable being outside late at night in warmer temperatures.
+
+We know that summertime has the most sightings, but in what month do the most UFO sightings occur?
+```{r}
+sightings_by_month <- df %>% 
+  group_by(month) %>% 
+  summarize(count = n())
+
+ggplot(sightings_by_month, aes(x = month, y = count, fill = month)) +
+  geom_col() +
+  labs(title = "UFO Sightings per Month",
+       x = "Month",
+       y = "Number of Sightings") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+Summer was defined as months 6, 7, and 8, which are June, July, and August respectively. Not shockingly, those same three months are have the highest rate of sightings, with July having the highest. There are a lot of reasons why this could be: more drinking, more partying, more fireworks, or just being outside more.
+
+Let's do something fun! I have a hypothesis that UFO sightings are more common near military bases, so we'll plot military bases on that UFO sighting map from earlier:
+```{r}
+mil_dat <- read_xlsx("military-bases.xlsx") %>% 
+  janitor::clean_names()
+
+mil_dat <- mil_dat %>% 
+  select(geo_point, component, site_name, oper_stat)
+
+mil_dat <- mil_dat %>% 
+  separate(geo_point, into = c("latitude", "longitude"), sep = ", ", convert = TRUE)
+```
+```{r, echo=FALSE}
+m <- leaflet(data = df) %>% 
+  addTiles() %>%
+  addCircleMarkers(lng = df$longitude,
+                   lat = df$latitude,
+                   radius = 5,
+                   color = "darkgreen",
+                   popup = ~paste("Shape:", str_to_title(df$shape),"<br>",
+                                  "Duration (seconds):", df$duration_seconds, "<br>",
+                                  "Duration (minutes):", df$duration_seconds/60, "<br>",
+                                  "Latitude: ", df$latitude, "<br>",
+                                  "Longitude: ", df$longitude)) %>% 
+  addCircleMarkers(lng = mil_dat$longitude,
+                   lat = mil_dat$latitude,
+                   radius = 5,
+                   color = "coral",
+                   popup = ~paste("Site Name:", mil_dat$site_name,"<br>",
+                                  "Component:", mil_dat$component, "<br>",
+                                  "Operation Status:", mil_dat$oper_stat, "<br>",
+                                  "Latitude: ", mil_dat$latitude, "<br>",
+                                  "Longitude: ", mil_dat$longitude))
+m
+```
+
+There are a lot of UFO sightings around military bases, but there are also a lot of UFO sightings in areas with none. We can draw one of two conclusions from this:
+
+1. There is no visible relationship between UFO sightings and military bases.
+
+2. The areas with a lot of UFO sightings and no military bases actually do have military bases, but they aren't listed.
+
+I'll let you decide which is more likely.
+
+## Data Modeling: 
+
