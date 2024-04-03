@@ -5,5 +5,5 @@ pagetitle: RHatton Portfolio
 
 # Data Analysis Projects
 
-[BIOL3100 Final Project - UFO Sightings](https://RHatton.github.io/portfolio/fin_proj.html)
+[BIOL3100 Final Project - UFO Sightings](https://RHatton929.github.io/portfolio/fin_proj.html)
 

@@ -3,7 +3,7 @@ output: html_document
 pagetitle: Hatton
 ---
 
-## [HOME](https://RHatton.github.io/) | [ABOUT ME](https://RHatton.github.io/about_me/) | [PORTFOLIO](https://RHatton.github.io/portfolio/) | [CV](https://RHatton.github.io/cv/)
+## [HOME](https://RHatton929.github.io/) | [ABOUT ME](https://RHatton929.github.io/about_me/) | [PORTFOLIO](https://RHatton929.github.io/portfolio/) | [CV](https://RHatton929.github.io/cv/)
 
 # Rachel Hatton
 
