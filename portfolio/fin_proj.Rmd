@@ -1,7 +1,12 @@
 ---
-title: "UFO Sighting Data Analysis"
-output: html_document
+title: "Final Project"
+output: html_notebook
+runtime: shiny
 ---
+## UFO Sighting Analysis
+
+Reports of unidentified flying objects have been around for over a century. My goal with this project is to determine if there is any kind of pattern in regards to the sightings of UFOs across the United States and to predict some aspect of future sightings using data collected between the years of 1910 and 2014. Remember that UFO does not equal aliens, but if you want to believe that this data represents alien sightings, I will not stop you!
+
 ## Setting Up:
 ```{r, message=FALSE, warning=FALSE}
 library(tidyverse)
@@ -9,6 +14,9 @@ library(janitor)
 library(leaflet)
 library(readxl)
 library(easystats)
+library(modelr)
+library(caret)
+library(shiny)
 ```
 
 ## Loading the Data:
@@ -24,7 +32,7 @@ As we can see above, there is some cleaning to be done before we get started on 
 
 ## Tidying the Data:
 
-This analysis is only going to focus on UFO sightings within the United States, so I need the data to reflect that.
+This analysis is only going to focus on UFO sightings within the United States, so the data needs to reflect that.
 ```{r}
 df <- df %>%
   mutate(country = case_when(
@@ -83,15 +91,26 @@ df <- df %>%
   is.na(shape) | shape %in% c("unknown", "other", "changing", "changed", "formation") ~ "other",
   shape %in% c("delta", "chevron") ~ "delta",
   shape %in% c("diamond", "hexagon") ~ "diamond",
-  shape %in% c("cone", "dome") ~ "cone",
+  shape %in% c("cone", "dome", "crescent") ~ "cone",
   TRUE ~ as.character(shape)))
 
 unique(df$shape)
 ```
 
-```{r, echo=FALSE}
+```{r, echo=FALSE, message=FALSE}
 df <- df %>%
   separate(datetime, into = c("month", "day", "year", "time"), sep = "[ /]")
+
+df$state <- factor(df$state)
+df$shape <- factor(df$shape)
+df$year <- as.numeric(df$year)
+df$month <- factor(df$month)
+
+names(df)
+
+df <- na.omit(df)
+sum(is.na(df))
+
 ```
 
 
@@ -115,7 +134,7 @@ m
 
 
 Which U.S. state/territory has the most UFO sightings?
-```{r, plot}
+```{r echo=FALSE}
 df %>% 
   mutate(state = toupper(state)) %>% 
   filter(state!=is.na(state)) %>% 
@@ -136,7 +155,7 @@ df %>%
 
 It makes a lot of sense that California, the most populous state, would have the most UFO sightings.Let's see if we can find out which state has the highest percentage of UFO sightings compared to population.
 
-```{r}
+```{r echo=FALSE}
 state_data <- df %>% 
   mutate(state = toupper(state)) %>% 
   filter(state!=is.na(state)) %>% 
@@ -193,7 +212,7 @@ mean(df$duration_seconds, na.rm = TRUE)
 5727.5 seconds is over an 1.5 hours, which is a pretty long time to watch a UFO fly overhead.
 
 Let's answer a few more questions: How has the frequency of UFO sightings changed over the years?
-```{r}
+```{r echo=FALSE}
 df %>%
   mutate(year = as.integer(year)) %>%
   count(year) %>%
@@ -208,7 +227,7 @@ df %>%
 Sightings peaked around 2012, before a rapid drop in occurrence.
 
 What season do sightings occur in most?
-```{r}
+```{r echo=FALSE}
 get_season <- function(month) {
   if (month %in% c(12, 1, 2)) {
     return("Winter")
@@ -221,10 +240,10 @@ get_season <- function(month) {
   }
 }
 
-df <- df %>%
+df2 <- df %>%
   mutate(season = sapply(month, get_season))
 
-sightings_by_season <- df %>%
+sightings_by_season <- df2 %>%
   group_by(season) %>%
   summarize(count = n())
 
@@ -248,7 +267,7 @@ sightings_by_month <- df %>%
 
 ggplot(sightings_by_month, aes(x = month, y = count, fill = month)) +
   geom_col() +
-  labs(title = "UFO Sightings per Month",
+  labs(title = "UFO Sightings by Month",
        x = "Month",
        y = "Number of Sightings") +
   theme_minimal() +
@@ -257,8 +276,8 @@ ggplot(sightings_by_month, aes(x = month, y = count, fill = month)) +
 
 Summer was defined as months 6, 7, and 8, which are June, July, and August respectively. Not shockingly, those same three months are have the highest rate of sightings, with July having the highest. There are a lot of reasons why this could be: more drinking, more partying, more fireworks, or just being outside more.
 
-Let's do something fun! I have a hypothesis that UFO sightings are more common near military bases, so we'll plot military bases on that UFO sighting map from earlier:
-```{r}
+Let's do something fun! I have a hypothesis that UFO sightings are more common near military bases, so we'll plot military bases on that UFO sighting map from earlier (in orange):
+```{r echo=FALSE}
 mil_dat <- read_xlsx("military-bases.xlsx") %>% 
   janitor::clean_names()
 
@@ -301,4 +320,60 @@ There are a lot of UFO sightings around military bases, but there are also a lot
 I'll let you decide which is more likely.
 
 ## Data Modeling: 
+
+Now I'm going to try to answer a question by modeling this data.
+
+What is the duration of a UFO sighting likely to be in the year 2024?
+```{r warning=FALSE}
+testing <- df %>%
+  select(duration_seconds, month, year, state, shape)
+
+mod1 <- glm(data = testing,
+            formula = duration_seconds ~ month + year + state + shape)
+
+mod2 <- glm(data = testing,
+            formula = duration_seconds ~ month * year + state + shape)
+
+mod3 <- glm(data = testing,
+            formula = duration_seconds ~ month * year * state + shape)
+
+compare_performance(mod1, mod2, mod3) %>% plot()
+```
+
+Of the models that the computer has managed to run, models 1 and 3 are equally bad, but better than model 2. For the sake of moving onward, I'll make the claim that model 3 is the 'best' model to answer this question. Below, I've taken a subset of the data to put aside as a testing set.
+
+```{r, warning=FALSE}
+id <- caret::createDataPartition(testing$duration_seconds, p = 0.8, list = FALSE)
+train <- testing[id, ]
+test <- testing[-id, ]
+
+mod4 <- glm(data = train,
+            formula = mod3$formula)
+
+add_predictions(test, mod4) %>% 
+  mutate(error = abs(pred - duration_seconds)) %>% 
+  pluck('error') %>% 
+  summary()
+
+add_predictions(testing, mod4) %>% 
+  mutate(error = abs(pred - duration_seconds)) %>% 
+  pluck('error') %>% 
+  summary()
+
+```
+
+There's a wide range of error from this model, and my first hypothesis as to why is that UFO sightings are truly random. Let's move on to answering our question, though. I've created a new UFO sighting, which has taken place in the month of September later this year.
+
+```{r, warning=FALSE}
+data_2024 <- data.frame(
+  month = "9",
+  year = 2024,
+  state = "ut",
+  shape = "light"
+)
+
+predict(mod4, data_2024)
+
+```
+
 

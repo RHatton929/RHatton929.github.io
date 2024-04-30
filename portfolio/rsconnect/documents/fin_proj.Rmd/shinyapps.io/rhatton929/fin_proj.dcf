@@ -1,0 +1,12 @@
+name: fin_proj
+title: fin_proj
+username: rhatton929
+account: rhatton929
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 11901181
+bundleId: 8559399
+url: https://rhatton929.shinyapps.io/fin_proj/
+version: 1
+asMultiple: FALSE
+asStatic: FALSE
